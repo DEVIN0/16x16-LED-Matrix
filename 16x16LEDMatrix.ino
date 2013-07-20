@@ -1,7 +1,10 @@
 // Written by Devin Hales
 // Based on Michael Colton's DefconBadge code
-// Does 3-bit gray-scale
-// July 19, 2013
+// 2-bit gray-scale
+// changed interrupt prescaler to 8 instead of 256
+// constant interrupt intervals
+// July 20, 2013
+
 
 #define BUZZER            A4    //PF1
 #define COL_DATA          10    //PB6
@@ -38,30 +41,30 @@
 #define PORT6_MASK        0b10111111
 #define PORT7_MASK        0b01111111
 
-#define DIM_CONSTANT      3     // adjust the dimming
-#define SHADES            5     // number of shades including off - 3
+#define SHADES            2     // number of shades between off and full brightness
 
 static char currentCol = 0;
 static char dimSum = 0;
+static char shadeCount = 0;
 int x,y;
 
 // write values between 0-7, 0: off, 1: dim, 7: bright
-char frameBuffer[16][16] ={{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-                           {0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
-                           {0,1,2,2,2,2,2,2,2,2,2,2,2,2,1,0},
-                           {0,1,2,3,3,3,3,3,3,3,3,3,3,2,1,0},
-                           {0,1,2,3,4,4,4,4,4,4,4,4,3,2,1,0},
-                           {0,1,2,3,4,5,5,5,5,5,5,4,3,2,1,0},
-                           {0,1,2,3,4,5,6,6,6,6,5,4,3,2,1,0},
+char frameBuffer[16][16] ={{0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
                            {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
                            {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
-                           {0,1,2,3,4,5,6,6,6,6,5,4,3,2,1,0},
-                           {0,1,2,3,4,5,5,5,5,5,5,4,3,2,1,0},
-                           {0,1,2,3,4,4,4,4,4,4,4,4,3,2,1,0},
-                           {0,1,2,3,3,3,3,3,3,3,3,3,3,2,1,0},
-                           {0,1,2,2,2,2,2,2,2,2,2,2,2,2,1,0},
-                           {0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
-                           {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}};
+                           {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
+                           {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
+                           {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
+                           {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
+                           {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
+                           {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
+                           {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
+                           {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
+                           {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
+                           {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
+                           {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
+                           {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0},
+                           {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0}};
                          
 
 
@@ -111,31 +114,34 @@ void setupTimer()
   TCNT1  = 0;                 //
 
   //OCR1A = 31250;            // compare match register 16MHz/256/2Hz //or 8Mhz/256/1hz or 8Mhz/256/1hz
-  OCR1A = 5;                  // compare match register
-  TCCR1B |= (1 << WGM12);     // CTC mode
-  TCCR1B |= (1 << CS12);      // 256 prescaler 
+  OCR1A = 256;                 // compare match register
+  TCCR1B |= (1 << WGM12);     // CTC mode (Clear timer on compare match)
+  TCCR1B |= (1 << CS11);      // 8 prescaler 
   TIMSK1 |= (1 << OCIE1A);    // enable timer compare interrupt
   interrupts();               // enable all interrupts
 }
 
 ISR(TIMER1_COMPA_vect)
 { 
-    digitalWrite(BUZZER, HIGH);
+
+    //TCNT1 = 0;      // testing
     
-    if(dimSum < SHADES) dimSum++;
-    else
+    if(dimSum > SHADES)
     {
+      //OCR1A = 256;
       dimSum = 0;
       writeCol();
-      writeRowBuffer();      // the dim best of them ball
+      writeRowBuffer();
       strobe();
+      dimSum++;
     }
     
-    dimSum++;
     writeRowBuffer();
     strobe();
-    OCR1A = dimSum + DIM_CONSTANT;
-    digitalWrite(BUZZER, LOW);
+    dimSum++;              // this is the shade counter that gets compared to the frame buffer pixel values
+   //     if(dimSum == 1) OCR1A = 128;
+   // else if(dimSum == 2) OCR1A = 512;
+   // TCNT1 = 0;
 }
 
 void writeCol()
@@ -188,19 +194,35 @@ void invert()
   }  
 }
 
+void allShade()
+{
+  shadeCount++;
+  if(shadeCount > (SHADES+1)) shadeCount = 0;
+  for(int i = 0; i < 16; i++)
+  {
+    for(int j = 0; j < 16; j++)
+    {
+      frameBuffer[i][j] = shadeCount;  
+    }
+  }  
+}
+
 void loop()
 {
   
   if(!(PIND & PORT5_SET)) invert();
   while(!(PIND & PORT5_SET)) delay(10);
     
+  if(!(PINE & PORT6_SET)) allShade();
+  while(!(PINE & PORT6_SET)) delay(10);
+  
   static long lastTime = millis();
   
   if(millis() > lastTime + 10)
   {
     lastTime = millis();
-    x = analogRead(JOY_X)/64;
-    y = analogRead(JOY_Y)/64;
+    //x = analogRead(JOY_X)/64;
+    //y = analogRead(JOY_Y)/64;
   }
 
 
